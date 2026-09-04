@@ -113,10 +113,15 @@ public sealed class FieldSchema
     /// The default value for the field. Available since Milvus v2.5.
     /// </param>
     /// <param name="enableAnalyzer">
-    /// Whether to enable the analyzer for this field. Required for BM25 full-text search input fields.
+    /// Whether to enable the analyzer for this field. Required for BM25 full-text search input fields
+    /// and for <paramref name="enableMatch" />-based <c>TEXT_MATCH</c> filtering.
     /// </param>
     /// <param name="analyzerParams">
     /// Optional analyzer parameters. For example: <c>new Dictionary&lt;string, object&gt; { ["type"] = "english" }</c>.
+    /// </param>
+    /// <param name="enableMatch">
+    /// Whether to build an inverted index enabling <c>TEXT_MATCH</c> filter expressions against this
+    /// field. Available since Milvus v2.5. Requires <paramref name="enableAnalyzer" /> to also be true.
     /// </param>
     public static FieldSchema CreateVarchar(
         string name,
@@ -128,12 +133,14 @@ public sealed class FieldSchema
         bool nullable = false,
         string? defaultValue = null,
         bool enableAnalyzer = false,
-        IReadOnlyDictionary<string, object>? analyzerParams = null)
+        IReadOnlyDictionary<string, object>? analyzerParams = null,
+        bool enableMatch = false)
         => new(name, MilvusDataType.VarChar, isPrimaryKey, autoId, isPartitionKey, description, nullable, defaultValue)
         {
             MaxLength = maxLength,
             EnableAnalyzer = enableAnalyzer,
-            AnalyzerParams = analyzerParams
+            AnalyzerParams = analyzerParams,
+            EnableMatch = enableMatch
         };
 
     /// <summary>
@@ -216,6 +223,55 @@ public sealed class FieldSchema
     /// </remarks>
     public static FieldSchema CreateTimestamptz(string name, string description = "", bool nullable = false)
         => new(name, MilvusDataType.Timestamptz, description: description, nullable: nullable);
+
+    /// <summary>
+    /// Create a field schema for a <c>text</c> field. Available since Milvus v2.6. Intended for longer
+    /// free-form content than <c>varchar</c>; shares the same wire representation, but cannot be a
+    /// primary key, a partition key, or an array element type, and does not support a default value.
+    /// </summary>
+    /// <param name="name">The field name.</param>
+    /// <param name="maxLength">
+    /// The maximum length of the field. Milvus does not enforce this at collection-creation time -- a
+    /// <see cref="MilvusDataType.Text" /> field can be created without it -- but every insert into the
+    /// field then fails with "max length not found", so it is required here to avoid that trap. Verified
+    /// against Milvus 2.6.4.
+    /// </param>
+    /// <param name="description">An optional description for the field.</param>
+    /// <param name="nullable">Whether the field can contain null values.</param>
+    /// <param name="enableAnalyzer">
+    /// Whether to enable the analyzer for this field. Required for BM25 full-text search input fields
+    /// and for <paramref name="enableMatch" />-based <c>TEXT_MATCH</c> filtering.
+    /// </param>
+    /// <param name="analyzerParams">
+    /// Optional analyzer parameters. For example: <c>new Dictionary&lt;string, object&gt; { ["type"] = "english" }</c>.
+    /// </param>
+    /// <param name="enableMatch">
+    /// Whether to build an inverted index enabling <c>TEXT_MATCH</c> filter expressions against this
+    /// field. Requires <paramref name="enableAnalyzer" /> to also be true.
+    /// <para>
+    /// As of Milvus 2.6.4, <c>TEXT_MATCH</c> (and every other filter expression) against a
+    /// <see cref="MilvusDataType.Text" /> field is rejected server-side with "filter on text field (...)
+    /// is not supported yet", regardless of this setting -- filtering by content currently requires a
+    /// <see cref="MilvusDataType.VarChar" /> field instead. The field can still be created, inserted
+    /// into, and read back (including via <c>OutputFields</c>); only expression-based filtering on it is
+    /// blocked. Revisit once a newer Milvus version lifts this restriction.
+    /// </para>
+    /// </param>
+    public static FieldSchema CreateText(
+        string name,
+        int maxLength,
+        string description = "",
+        bool nullable = false,
+        bool enableAnalyzer = false,
+        IReadOnlyDictionary<string, object>? analyzerParams = null,
+        bool enableMatch = false)
+        => new(name, MilvusDataType.Text, description: description, nullable: nullable)
+        {
+            MaxLength = maxLength,
+            EnableAnalyzer = enableAnalyzer,
+            AnalyzerParams = analyzerParams,
+            EnableMatch = enableMatch
+        };
 
     /// <summary>
     /// Create a field schema for a sparse float vector field. Available since Milvus v2.4.
@@ -418,11 +474,13 @@ public sealed class FieldSchema
     public int? Dimension { get; set; }
 
     /// <summary>
-    /// Whether to enable the analyzer for this field. Required for BM25 full-text search input fields.
+    /// Whether to enable the analyzer for this field. Required for BM25 full-text search input fields
+    /// and for <see cref="EnableMatch" />-based <c>TEXT_MATCH</c> filtering.
     /// </summary>
     /// <remarks>
     /// When enabled, the field can be used as an input to a BM25 function for full-text search.
-    /// This property is only applicable for <see cref="MilvusDataType.VarChar" /> fields.
+    /// This property is only applicable for <see cref="MilvusDataType.VarChar" /> and
+    /// <see cref="MilvusDataType.Text" /> fields.
     /// </remarks>
     public bool EnableAnalyzer { get; set; }
 
@@ -433,6 +491,23 @@ public sealed class FieldSchema
     /// This property is only applicable when <see cref="EnableAnalyzer" /> is set to true.
     /// </remarks>
     public IReadOnlyDictionary<string, object>? AnalyzerParams { get; set; }
+
+    /// <summary>
+    /// Whether to build an inverted index enabling <c>TEXT_MATCH</c> filter expressions against this
+    /// field. Available since Milvus v2.5.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Requires <see cref="EnableAnalyzer" /> to also be set to <see langword="true" /> -- Milvus rejects a
+    /// <c>TEXT_MATCH</c> filter against a field where match is not enabled with an error naming the field,
+    /// e.g. <c>field "x" does not enable match</c> (verified against Milvus 2.6.4).
+    /// </para>
+    /// <para>
+    /// This property is only applicable for <see cref="MilvusDataType.VarChar" /> and
+    /// <see cref="MilvusDataType.Text" /> fields.
+    /// </para>
+    /// </remarks>
+    public bool EnableMatch { get; set; }
 
     /// <summary>
     /// Whether this field is the output of a function and should not be provided during insertion.

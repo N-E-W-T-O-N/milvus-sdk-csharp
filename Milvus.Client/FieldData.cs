@@ -173,6 +173,13 @@ public abstract class FieldData
                     { DataCase: ScalarField.DataOneofCase.StringData }
                         when fieldData.Type == Grpc.DataType.Timestamptz
                         => CreateTimestamptz(fieldData.FieldName, fieldData.Scalars.StringData.Data, fieldData.IsDynamic),
+                    // Text also shares the string_data slot with VarChar (verified against Milvus 2.6.4).
+                    { DataCase: ScalarField.DataOneofCase.StringData }
+                        when fieldData.Type == Grpc.DataType.Text && hasValidData
+                        => CreateText(fieldData.FieldName, ApplyValidMask(fieldData.Scalars.StringData.Data, fieldData.ValidData), fieldData.IsDynamic),
+                    { DataCase: ScalarField.DataOneofCase.StringData }
+                        when fieldData.Type == Grpc.DataType.Text
+                        => CreateText(fieldData.FieldName, fieldData.Scalars.StringData.Data, fieldData.IsDynamic),
                     { DataCase: ScalarField.DataOneofCase.StringData } when hasValidData
                         => CreateVarChar(fieldData.FieldName, ApplyValidMask(fieldData.Scalars.StringData.Data, fieldData.ValidData), fieldData.IsDynamic),
                     { DataCase: ScalarField.DataOneofCase.StringData }
@@ -371,6 +378,18 @@ public abstract class FieldData
         IReadOnlyList<string?> data,
         bool isDynamic = false)
         => new(fieldName, data, MilvusDataType.VarChar, isDynamic);
+
+    /// <summary>
+    /// Create a <see cref="MilvusDataType.Text" /> field. Available since Milvus v2.6.
+    /// </summary>
+    /// <param name="fieldName">Field name.</param>
+    /// <param name="data">Data in this field. Values can be null if the field is nullable.</param>
+    /// <param name="isDynamic">Whether the field is dynamic.</param>
+    public static FieldData<string?> CreateText(
+        string fieldName,
+        IReadOnlyList<string?> data,
+        bool isDynamic = false)
+        => new(fieldName, data, MilvusDataType.Text, isDynamic);
 
     /// <summary>
     /// Create array of elements.
@@ -972,6 +991,32 @@ public class FieldData<TData> : FieldData
                 fieldData.Scalars = new Grpc.ScalarField { StringData = timestamptzData };
                 break;
 
+            // Text travels in string_data (same slot as VarChar), verified against Milvus 2.6.4.
+            case MilvusDataType.Text:
+                Grpc.StringArray textData = new();
+                bool hasNullText = Data.Any(item => item is null);
+                if (hasNullText)
+                {
+                    foreach (string? item in (IReadOnlyList<string?>)Data)
+                    {
+                        if (item is null)
+                        {
+                            fieldData.ValidData.Add(false);
+                        }
+                        else
+                        {
+                            fieldData.ValidData.Add(true);
+                            textData.Data.Add(item);
+                        }
+                    }
+                }
+                else
+                {
+                    textData.Data.AddRange((IReadOnlyList<string>)Data);
+                }
+                fieldData.Scalars = new Grpc.ScalarField { StringData = textData };
+                break;
+
             case MilvusDataType.Geometry:
                 Grpc.GeometryWktArray geometryData = new();
                 bool hasNullGeometry = Data.Any(item => item is null);
@@ -1014,7 +1059,7 @@ public class FieldData<TData> : FieldData
             MilvusDataType.Bool or MilvusDataType.Int8 or MilvusDataType.Int16 or MilvusDataType.Int32
                 or MilvusDataType.Int64 or MilvusDataType.Float or MilvusDataType.Double
                 or MilvusDataType.String or MilvusDataType.VarChar or MilvusDataType.Json
-                or MilvusDataType.Geometry or MilvusDataType.Timestamptz
+                or MilvusDataType.Geometry or MilvusDataType.Timestamptz or MilvusDataType.Text
                 => Data[index],
 
             MilvusDataType.None => throw new MilvusException($"DataType Error:{DataType}"),

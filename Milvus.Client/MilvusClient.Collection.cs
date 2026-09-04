@@ -146,6 +146,15 @@ public partial class MilvusClient
                 });
             }
 
+            if (field.EnableMatch)
+            {
+                grpcField.TypeParams.Add(new Grpc.KeyValuePair
+                {
+                    Key = Constants.EnableMatch,
+                    Value = "true"
+                });
+            }
+
             grpcCollectionSchema.Fields.Add(grpcField);
         }
 

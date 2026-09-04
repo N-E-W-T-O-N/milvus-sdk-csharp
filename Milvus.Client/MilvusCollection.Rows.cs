@@ -233,6 +233,8 @@ public partial class MilvusCollection
 
             MilvusDataType.String or MilvusDataType.VarChar
                 => FieldData.CreateVarChar(field.Name, TextColumn(field.Name, values, ToText, field.Nullable)),
+            MilvusDataType.Text
+                => FieldData.CreateText(field.Name, TextColumn(field.Name, values, ToText, field.Nullable)),
             MilvusDataType.Geometry
                 => FieldData.CreateGeometry(field.Name, TextColumn(field.Name, values, ToText, field.Nullable)),
             MilvusDataType.Timestamptz
