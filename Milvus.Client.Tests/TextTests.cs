@@ -2,13 +2,27 @@ using Xunit;
 
 namespace Milvus.Client.Tests;
 
-// Milvus 2.6.4 crashes outright (process exits with SIGABRT) when two or more collections
-// containing a Text field are created/inserted/loaded concurrently -- reliably reproduced by running
-// this class's own tests in parallel with each other (confirmed via a minimal repro: 10 *sequential*
-// create/insert/load/drop cycles with a Text field never crash it, but running this class's 6 tests
-// together, which xunit v3 parallelizes by default, crashes it consistently). This is a server-side
-// bug, not something the client can work around -- keep this class out of the parallel pool so its
-// own tests, and the rest of the suite, aren't taken down by it.
+// Root-caused via a live container's own logs (docker logs, not just client-side symptoms): Milvus
+// 2.6.4's streaming-node flusher unrecoverably panics -- crashing the entire server process, not just
+// the request -- when it processes a collection containing a Text field with no max_length:
+//
+//   panic: new a empty data sync service should never be failed, the max_length was not specified,
+//   field type is Text
+//     .../flushcommon/pipeline.NewEmptyStreamingNodeDataSyncService(...)
+//     .../flusherimpl.(*flusherComponents).WhenCreateCollection(...)
+//     .../flusherimpl.(*WALFlusherImpl).dispatch(...)
+//     created by .../flusherimpl.RecoverWALFlusher
+//
+// The call stack (RecoverWALFlusher) means this doesn't fire synchronously on CreateCollectionAsync --
+// it fires whenever the flusher subsystem next recovers/rescans WAL channels, which can happen a good
+// while after the offending collection was created (and even after it was dropped again, if the
+// recovery pass catches it mid-window). That delay is why this looked like a "concurrency" issue in
+// earlier investigation: the crash surfaces later, taking out whatever happens to be running at that
+// point, not necessarily whatever created the bad collection. FieldSchema.CreateText requires
+// maxLength for exactly this reason -- no code going through the public API can hit this -- so this
+// class does not exercise the bad shape live; see FieldSchema.CreateText's XML doc for the client-side
+// contract this protects. Kept out of the parallel pool as ordinary defense-in-depth, not because this
+// class's own tests are known to trigger anything themselves.
 [CollectionDefinition(nameof(TextTests), DisableParallelization = true)]
 public sealed class TextTestsCollection;
 
@@ -61,38 +75,40 @@ public class TextTests : IAsyncLifetime
         await collection.DropAsync(TestContext.Current.CancellationToken);
     }
 
-    [Fact]
-    public async Task Insert_without_max_length_fails()
-    {
-        if (await Skip()) return;
-
-        // Milvus does not enforce max_length for a Text field at collection-creation time, but every
-        // insert into the field then fails -- confirmed against 2.6.4. FieldSchema.CreateText requires
-        // maxLength to avoid this trap; this test bypasses that via the general Create(...) overload to
-        // confirm the underlying server behavior it protects against still holds.
-        MilvusCollection collection = Client.GetCollection(nameof(Insert_without_max_length_fails));
-        await collection.DropAsync(TestContext.Current.CancellationToken);
-
-        await Client.CreateCollectionAsync(
-            nameof(Insert_without_max_length_fails),
-            new[]
-            {
-                FieldSchema.Create<long>("id", isPrimaryKey: true),
-                FieldSchema.Create("content", MilvusDataType.Text),
-                FieldSchema.CreateFloatVector("vec", 4),
-            }, cancellationToken: TestContext.Current.CancellationToken);
-
-        MilvusException exception = await Assert.ThrowsAsync<MilvusException>(() =>
-            collection.InsertAsync(new FieldData[]
-            {
-                FieldData.Create("id", new long[] { 1 }),
-                FieldData.CreateText("content", new[] { "hello" }),
-                FieldData.CreateFloatVector("vec", new ReadOnlyMemory<float>[] { new float[] { 1, 1, 1, 1 } }),
-            }, cancellationToken: TestContext.Current.CancellationToken));
-        Assert.Contains("max length", exception.Message, StringComparison.OrdinalIgnoreCase);
-
-        await collection.DropAsync(TestContext.Current.CancellationToken);
-    }
+    // Disabled, not deleted: creating this exact collection shape (a Text field with no max_length) is
+    // what triggers the server panic documented above, so running it against the shared test container
+    // crashes it for every other test. FieldSchema.CreateText's XML doc is the source of truth for this
+    // behavior in the meantime. Re-enable once milvus-io/milvus#53291 is fixed upstream, or if this ever
+    // needs to be re-verified against a disposable, non-shared container.
+    //
+    // [Fact]
+    // public async Task Insert_without_max_length_fails()
+    // {
+    //     if (await Skip()) return;
+    //
+    //     MilvusCollection collection = Client.GetCollection(nameof(Insert_without_max_length_fails));
+    //     await collection.DropAsync(TestContext.Current.CancellationToken);
+    //
+    //     await Client.CreateCollectionAsync(
+    //         nameof(Insert_without_max_length_fails),
+    //         new[]
+    //         {
+    //             FieldSchema.Create<long>("id", isPrimaryKey: true),
+    //             FieldSchema.Create("content", MilvusDataType.Text),
+    //             FieldSchema.CreateFloatVector("vec", 4),
+    //         }, cancellationToken: TestContext.Current.CancellationToken);
+    //
+    //     MilvusException exception = await Assert.ThrowsAsync<MilvusException>(() =>
+    //         collection.InsertAsync(new FieldData[]
+    //         {
+    //             FieldData.Create("id", new long[] { 1 }),
+    //             FieldData.CreateText("content", new[] { "hello" }),
+    //             FieldData.CreateFloatVector("vec", new ReadOnlyMemory<float>[] { new float[] { 1, 1, 1, 1 } }),
+    //         }, cancellationToken: TestContext.Current.CancellationToken));
+    //     Assert.Contains("max length", exception.Message, StringComparison.OrdinalIgnoreCase);
+    //
+    //     await collection.DropAsync(TestContext.Current.CancellationToken);
+    // }
 
     [Fact]
     public async Task Rejects_as_primary_key()

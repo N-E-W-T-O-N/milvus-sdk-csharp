@@ -2,9 +2,10 @@ using Xunit;
 
 namespace Milvus.Client.Tests;
 
-// See TextTests's TextTestsCollection comment: Milvus 2.6.4 has proven unstable under concurrent
-// schema-evolution-adjacent operations (analyzer/match-enabled fields, in this class's case) run from
-// several tests at once. Kept out of the parallel pool defensively, alongside TextTests.
+// See TextTests's TextTestsCollection comment for the actual root cause of the server crashes that
+// motivated this: a Text field created without max_length, not concurrency. This class never creates
+// that shape, so it isn't known to trigger anything itself -- kept out of the parallel pool as
+// ordinary defense-in-depth alongside TextTests, not because of a finding specific to this class.
 [CollectionDefinition(nameof(TextMatchTests), DisableParallelization = true)]
 public sealed class TextMatchTestsCollection;
 

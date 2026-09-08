@@ -233,10 +233,23 @@ public sealed class FieldSchema
     /// </summary>
     /// <param name="name">The field name.</param>
     /// <param name="maxLength">
-    /// The maximum length of the field. Milvus does not enforce this at collection-creation time -- a
-    /// <see cref="MilvusDataType.Text" /> field can be created without it -- but every insert into the
-    /// field then fails with "max length not found", so it is required here to avoid that trap. Verified
-    /// against Milvus 2.6.4.
+    /// The maximum length of the field. Milvus's own schema validation does not enforce this at
+    /// collection-creation time, and a request omitting it is accepted -- but doing so is far more
+    /// dangerous than a mere validation gap. Root-caused against a live Milvus 2.6.4 container (via the
+    /// server's own logs, not just symptoms): its streaming-node flusher unrecoverably panics --
+    /// crashing the <em>entire server process</em>, not just the one request -- the next time it
+    /// recovers/rescans WAL channels and finds a collection with a <see cref="MilvusDataType.Text" />
+    /// field lacking this value:
+    /// <code>
+    /// panic: new a empty data sync service should never be failed, the max_length was not specified, field type is Text
+    ///   .../flushcommon/pipeline.NewEmptyStreamingNodeDataSyncService(...)
+    ///   .../flusherimpl.(*flusherComponents).WhenCreateCollection(...)
+    ///   created by .../flusherimpl.RecoverWALFlusher
+    /// </code>
+    /// Because that recovery pass can run well after the collection was created (even after it was
+    /// dropped again, if the pass catches it mid-window), the crash can surface much later and appear
+    /// to hit an unrelated, unlucky operation. <c>maxLength</c> is required here specifically to make
+    /// this unreachable through the public API -- there is no supported way to opt out of it.
     /// </param>
     /// <param name="description">An optional description for the field.</param>
     /// <param name="nullable">Whether the field can contain null values.</param>
