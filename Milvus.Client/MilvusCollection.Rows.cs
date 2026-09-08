@@ -119,15 +119,22 @@ public partial class MilvusCollection
     /// into one dictionary per row. Used by <see cref="QueryRowsAsync" /> and by
     /// <see cref="SearchResults.GetHits(int)" />.
     /// </summary>
-    internal static List<Dictionary<string, object?>> PivotToRows(IReadOnlyList<FieldData> columns)
+    /// <param name="columns">The columns to pivot.</param>
+    /// <param name="start">The first row index to include, e.g. one query's share of a multi-query search.</param>
+    /// <param name="count">
+    /// The number of rows to include starting at <paramref name="start" />; the rest of the column's
+    /// rows when <see langword="null" /> (the default).
+    /// </param>
+    internal static List<Dictionary<string, object?>> PivotToRows(
+        IReadOnlyList<FieldData> columns, int start = 0, int? count = null)
     {
         if (columns.Count == 0)
         {
             return new List<Dictionary<string, object?>>();
         }
 
-        long rowCount = columns[0].RowCount;
-        List<Dictionary<string, object?>> rows = new((int)rowCount);
+        int rowCount = count ?? (int)columns[0].RowCount - start;
+        List<Dictionary<string, object?>> rows = new(rowCount);
         for (int i = 0; i < rowCount; i++)
         {
             rows.Add(new Dictionary<string, object?>(columns.Count, StringComparer.Ordinal));
@@ -137,7 +144,7 @@ public partial class MilvusCollection
         {
             for (int i = 0; i < rowCount; i++)
             {
-                rows[i][column.FieldName!] = column.GetRowValue(i);
+                rows[i][column.FieldName!] = column.GetRowValue(start + i);
             }
         }
 

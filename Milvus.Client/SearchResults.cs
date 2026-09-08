@@ -64,14 +64,18 @@ public sealed class SearchResults
         }
 
         int count = (int)Limits[queryIndex];
-        List<Dictionary<string, object?>> rows = MilvusCollection.PivotToRows(FieldsData);
+
+        // Only this query's slice of FieldsData needs pivoting, not the whole (potentially
+        // multi-query) result -- PivotToRows(start, count) avoids re-pivoting every other query's
+        // rows on every call.
+        List<Dictionary<string, object?>> rows = MilvusCollection.PivotToRows(FieldsData, start, count);
 
         List<SearchHit> hits = new(count);
-        for (int i = start; i < start + count; i++)
+        for (int i = 0; i < count; i++)
         {
-            object id = Ids.LongIds is not null ? Ids.LongIds[i] : Ids.StringIds![i];
+            object id = Ids.LongIds is not null ? Ids.LongIds[start + i] : Ids.StringIds![start + i];
             IReadOnlyDictionary<string, object?> fields = i < rows.Count ? rows[i] : new Dictionary<string, object?>();
-            hits.Add(new SearchHit(id, Scores[i], fields));
+            hits.Add(new SearchHit(id, Scores[start + i], fields));
         }
 
         return hits;
