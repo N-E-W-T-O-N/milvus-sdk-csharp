@@ -35,4 +35,45 @@ public sealed class SearchResults
 
     public required IReadOnlyList<long> Limits { get; init; }
 #pragma warning restore CS1591
+
+    /// <summary>
+    /// Combines <see cref="Ids" />, <see cref="Scores" /> and <see cref="FieldsData" /> into one
+    /// <see cref="SearchHit" /> per matched entity for a single query vector -- a directly-usable row,
+    /// rather than three parallel column-oriented arrays the caller has to zip together by hand.
+    /// </summary>
+    /// <param name="queryIndex">
+    /// Which query vector's hits to return. A search can run against several query vectors at once
+    /// (<see cref="NumQueries" />), and every array on this type is a flat concatenation of each
+    /// query's hits in order; this slices out just one query's share, using <see cref="Limits" />.
+    /// Defaults to 0, the common case of searching with a single query vector.
+    /// </param>
+    public IReadOnlyList<SearchHit> GetHits(int queryIndex = 0)
+    {
+        if (queryIndex < 0 || queryIndex >= Limits.Count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(queryIndex), queryIndex,
+                $"Must be in [0, {Limits.Count}) -- this result has {NumQueries} quer" +
+                (NumQueries == 1 ? "y" : "ies") + ".");
+        }
+
+        int start = 0;
+        for (int i = 0; i < queryIndex; i++)
+        {
+            start += (int)Limits[i];
+        }
+
+        int count = (int)Limits[queryIndex];
+        List<Dictionary<string, object?>> rows = MilvusCollection.PivotToRows(FieldsData);
+
+        List<SearchHit> hits = new(count);
+        for (int i = start; i < start + count; i++)
+        {
+            object id = Ids.LongIds is not null ? Ids.LongIds[i] : Ids.StringIds![i];
+            IReadOnlyDictionary<string, object?> fields = i < rows.Count ? rows[i] : new Dictionary<string, object?>();
+            hits.Add(new SearchHit(id, Scores[i], fields));
+        }
+
+        return hits;
+    }
 }

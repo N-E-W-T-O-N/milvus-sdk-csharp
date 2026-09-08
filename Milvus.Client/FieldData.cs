@@ -60,7 +60,19 @@ public abstract class FieldData
     /// The value at <paramref name="index" /> as a boxed object, used to pack dynamic fields into the
     /// <c>$meta</c> JSON column. Null when the column is nullable and has no value for that row.
     /// </summary>
+    /// <remarks>
+    /// Vector-typed subclasses throw here -- a vector cannot itself be packed into the JSON
+    /// <c>$meta</c> column. For a row-value accessor that also works on vector columns, see
+    /// <see cref="GetRowValue" />.
+    /// </remarks>
     internal abstract object? GetValueAsObject(int index);
+
+    /// <summary>
+    /// The value at <paramref name="index" /> as a boxed object, used to pivot a column-oriented query
+    /// or search result into row-oriented dictionaries. Unlike <see cref="GetValueAsObject" />, this
+    /// works for every field type including vectors -- there is no JSON-serialization constraint here.
+    /// </summary>
+    internal abstract object? GetRowValue(int index);
 
     /// <summary>
     /// Get string data.
@@ -720,6 +732,9 @@ public class FieldData<TData> : FieldData
     /// Vector data
     /// </summary>
     public IReadOnlyList<TData> Data { get; set; }
+
+    /// <inheritdoc />
+    internal override object? GetRowValue(int index) => Data[index];
 
     /// <summary>
     /// Row count
