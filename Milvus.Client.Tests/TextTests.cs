@@ -75,40 +75,10 @@ public class TextTests : IAsyncLifetime
         await collection.DropAsync(TestContext.Current.CancellationToken);
     }
 
-    // Disabled, not deleted: creating this exact collection shape (a Text field with no max_length) is
-    // what triggers the server panic documented above, so running it against the shared test container
-    // crashes it for every other test. FieldSchema.CreateText's XML doc is the source of truth for this
-    // behavior in the meantime. Re-enable once milvus-io/milvus#53291 is fixed upstream, or if this ever
-    // needs to be re-verified against a disposable, non-shared container.
-    //
-    // [Fact]
-    // public async Task Insert_without_max_length_fails()
-    // {
-    //     if (await Skip()) return;
-    //
-    //     MilvusCollection collection = Client.GetCollection(nameof(Insert_without_max_length_fails));
-    //     await collection.DropAsync(TestContext.Current.CancellationToken);
-    //
-    //     await Client.CreateCollectionAsync(
-    //         nameof(Insert_without_max_length_fails),
-    //         new[]
-    //         {
-    //             FieldSchema.Create<long>("id", isPrimaryKey: true),
-    //             FieldSchema.Create("content", MilvusDataType.Text),
-    //             FieldSchema.CreateFloatVector("vec", 4),
-    //         }, cancellationToken: TestContext.Current.CancellationToken);
-    //
-    //     MilvusException exception = await Assert.ThrowsAsync<MilvusException>(() =>
-    //         collection.InsertAsync(new FieldData[]
-    //         {
-    //             FieldData.Create("id", new long[] { 1 }),
-    //             FieldData.CreateText("content", new[] { "hello" }),
-    //             FieldData.CreateFloatVector("vec", new ReadOnlyMemory<float>[] { new float[] { 1, 1, 1, 1 } }),
-    //         }, cancellationToken: TestContext.Current.CancellationToken));
-    //     Assert.Contains("max length", exception.Message, StringComparison.OrdinalIgnoreCase);
-    //
-    //     await collection.DropAsync(TestContext.Current.CancellationToken);
-    // }
+    // "Insert without max_length fails" is deliberately not tested here: creating that exact collection
+    // shape (a Text field with no max_length) is what triggers the server panic documented above, so it
+    // runs against its own dedicated, disposable container instead of this shared one -- see
+    // TextMaxLengthCrashRegressionTests.
 
     [Fact]
     public async Task Rejects_as_primary_key()
