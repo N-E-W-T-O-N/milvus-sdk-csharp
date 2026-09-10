@@ -90,8 +90,11 @@ public partial class MilvusCollection
     }
 
     /// <summary>
-    /// Retrieves rows from a collection via scalar filtering, in the same row-dictionary shape accepted
-    /// by the row-based <see cref="InsertAsync(IReadOnlyList{IDictionary{string, object}}, string, CancellationToken)" />.
+    /// Retrieves rows from a collection via scalar filtering, using the same field name/value shape as
+    /// the row-based <see cref="InsertAsync(IReadOnlyList{IDictionary{string, object}}, string, CancellationToken)" />
+    /// -- though each returned row is read-only (<see cref="IReadOnlyDictionary{TKey, TValue}" />), so
+    /// feeding it back into a row-based insert or upsert (which take a mutable <see cref="IDictionary{TKey, TValue}" />)
+    /// requires copying into a new <see cref="Dictionary{TKey, TValue}" /> first.
     /// </summary>
     /// <param name="expression">A boolean expression determining which rows are to be returned.</param>
     /// <param name="parameters">Various additional optional parameters to configure the query.</param>
@@ -133,7 +136,33 @@ public partial class MilvusCollection
             return new List<Dictionary<string, object?>>();
         }
 
-        int rowCount = count ?? (int)columns[0].RowCount - start;
+        long firstColumnRowCount = columns[0].RowCount;
+        foreach (FieldData column in columns)
+        {
+            if (column.RowCount != firstColumnRowCount)
+            {
+                throw new MilvusException(
+                    $"Column '{column.FieldName}' has {column.RowCount} rows, but column " +
+                    $"'{columns[0].FieldName}' has {firstColumnRowCount} -- the server returned " +
+                    "inconsistent column lengths, so these columns cannot be pivoted into rows.");
+            }
+        }
+
+        if (start < 0 || start > firstColumnRowCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(start), start, $"Must be in [0, {firstColumnRowCount}] -- these columns have {firstColumnRowCount} rows.");
+        }
+
+        int rowCount = count ?? (int)firstColumnRowCount - start;
+
+        if (rowCount < 0 || start + rowCount > firstColumnRowCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(count), count,
+                $"start ({start}) + count ({rowCount}) must not exceed the columns' row count ({firstColumnRowCount}).");
+        }
+
         List<Dictionary<string, object?>> rows = new(rowCount);
         for (int i = 0; i < rowCount; i++)
         {
@@ -369,8 +398,8 @@ public partial class MilvusCollection
     }
 
     /// <summary>
-    /// Projects a column whose values travel as text. The varchar, geometry and timestamptz wire paths
-    /// all carry nulls themselves, so this only has to decide whether a null is allowed.
+    /// Projects a column whose values travel as text. The varchar, text, geometry and timestamptz wire
+    /// paths all carry nulls themselves, so this only has to decide whether a null is allowed.
     /// </summary>
     private static List<string?> TextColumn(
         string fieldName, object?[] values, RowConverter<string> convert, bool nullable)

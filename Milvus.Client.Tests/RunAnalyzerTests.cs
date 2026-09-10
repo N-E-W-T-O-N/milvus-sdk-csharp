@@ -173,6 +173,35 @@ public class RunAnalyzerTests : IAsyncLifetime
         await collection.DropAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Rejects_analyzerParams_together_with_collectionName_and_fieldName()
+    {
+        // Purely client-side validation -- no live server call is needed to hit this.
+        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            Client.RunAnalyzerAsync(
+                new[] { "hello" },
+                analyzerParams: new Dictionary<string, object> { ["type"] = "standard" },
+                collectionName: "some_collection",
+                fieldName: "some_field",
+                cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Contains("mutually exclusive", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("some_collection", null)]
+    [InlineData(null, "some_field")]
+    public async Task Rejects_only_one_of_collectionName_and_fieldName(string? collectionName, string? fieldName)
+    {
+        // Purely client-side validation -- no live server call is needed to hit this.
+        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            Client.RunAnalyzerAsync(
+                new[] { "hello" },
+                collectionName: collectionName,
+                fieldName: fieldName,
+                cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Contains("must be supplied together", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<bool> Skip() => await Client.GetParsedMilvusVersion() < new Version(2, 5);
 
     public ValueTask InitializeAsync() => ValueTask.CompletedTask;

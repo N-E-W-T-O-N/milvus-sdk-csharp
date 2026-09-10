@@ -561,6 +561,14 @@ public sealed class FieldSchema
                 $"{nameof(CreateText)}, instead of the general {nameof(Create)} overload.");
         }
 
+        if (EnableMatch && !EnableAnalyzer)
+        {
+            throw new ArgumentException(
+                $"Field '{Name}' has {nameof(EnableMatch)} set without {nameof(EnableAnalyzer)}. " +
+                $"{nameof(EnableMatch)} requires {nameof(EnableAnalyzer)} to also be true -- see " +
+                $"{nameof(EnableMatch)}'s documentation.");
+        }
+
         Grpc.FieldSchema grpcField = new()
         {
             Name = Name,

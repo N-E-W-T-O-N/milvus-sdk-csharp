@@ -49,6 +49,22 @@ public partial class MilvusClient
     {
         Verify.NotNull(texts);
 
+        bool hasFieldRef = collectionName is not null || fieldName is not null;
+
+        if (analyzerParams is not null && hasFieldRef)
+        {
+            throw new ArgumentException(
+                $"{nameof(analyzerParams)} is mutually exclusive with {nameof(collectionName)}/{nameof(fieldName)} -- " +
+                "pass one or the other, not both.");
+        }
+
+        if (hasFieldRef && (collectionName is null || fieldName is null))
+        {
+            throw new ArgumentException(
+                $"{nameof(collectionName)} and {nameof(fieldName)} must be supplied together to run a field's " +
+                "own configured analyzer.");
+        }
+
         RunAnalyzerRequest request = new()
         {
             WithDetail = withDetail,

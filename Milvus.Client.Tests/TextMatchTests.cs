@@ -79,6 +79,24 @@ public class TextMatchTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task EnableMatch_without_EnableAnalyzer_is_rejected_client_side()
+    {
+        // Purely client-side: EnableMatch's contract requires EnableAnalyzer, and FieldSchema.ToGrpc()
+        // enforces that itself before any request is sent, rather than letting the server reject it --
+        // so this throws synchronously and needs no live collection to actually be created.
+        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            Client.CreateCollectionAsync(
+                nameof(EnableMatch_without_EnableAnalyzer_is_rejected_client_side),
+                new[]
+                {
+                    FieldSchema.Create<long>("id", isPrimaryKey: true),
+                    FieldSchema.CreateVarchar("tag", 64, enableMatch: true),
+                    FieldSchema.CreateFloatVector("vec", 4),
+                }, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Contains("EnableAnalyzer", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Describe_round_trips_EnableMatch()
     {
         if (await Skip()) return;

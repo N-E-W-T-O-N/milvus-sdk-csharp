@@ -58,12 +58,34 @@ public sealed class SearchResults
         }
 
         int start = 0;
-        for (int i = 0; i < queryIndex; i++)
+        checked
         {
-            start += (int)Limits[i];
+            try
+            {
+                for (int i = 0; i < queryIndex; i++)
+                {
+                    start += (int)Limits[i];
+                }
+            }
+            catch (OverflowException exception)
+            {
+                throw new MilvusException(
+                    $"This result's {nameof(Limits)} overflow a 32-bit row offset before reaching query " +
+                    $"{queryIndex}; the server-reported hit counts are too large for {nameof(GetHits)} to slice.",
+                    exception);
+            }
         }
 
-        int count = (int)Limits[queryIndex];
+        int count = checked((int)Limits[queryIndex]);
+
+        int idCount = Ids.LongIds?.Count ?? Ids.StringIds?.Count ?? 0;
+        if (start + count > idCount || start + count > Scores.Count)
+        {
+            throw new MilvusException(
+                $"Query {queryIndex}'s slice [{start}, {start + count}) does not fit within the " +
+                $"{idCount} id(s) and {Scores.Count} score(s) this result actually carries -- the server " +
+                $"reported inconsistent {nameof(Limits)} for this search.");
+        }
 
         // Only this query's slice of FieldsData needs pivoting, not the whole (potentially
         // multi-query) result -- PivotToRows(start, count) avoids re-pivoting every other query's
