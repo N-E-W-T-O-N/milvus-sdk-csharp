@@ -7,10 +7,12 @@ namespace Milvus.Client.Tests;
 // whole server process down, on a delayed WAL-recovery pass rather than synchronously. Tracked upstream
 // at milvus-io/milvus#53291.
 //
-// This test deliberately creates that exact shape, so it runs against its own IsolatedMilvusFixture
-// container rather than MilvusFixture's assembly-wide shared one -- if the server does crash here (or
-// once the delayed panic eventually fires on this container), it only takes down this one test class,
-// not the other 280+ tests sharing the normal container.
+// FieldSchema.ToGrpc() now rejects that exact shape client-side (for any field, not just ones built via
+// CreateText) -- see FieldSchema.CreateText's documentation -- so CreateCollectionAsync below never
+// actually reaches the server with it any more. This test still runs against its own IsolatedMilvusFixture
+// container rather than MilvusFixture's assembly-wide shared one: it's the one place deliberately
+// constructing the bad shape, so if the client-side guard is ever weakened or removed, the resulting
+// server crash takes down only this test class, not the other 280+ tests sharing the normal container.
 public class TextMaxLengthCrashRegressionTests : IClassFixture<IsolatedMilvusFixture>, IDisposable
 {
     private readonly MilvusClient? Client;
@@ -21,7 +23,7 @@ public class TextMaxLengthCrashRegressionTests : IClassFixture<IsolatedMilvusFix
     public void Dispose() => Client?.Dispose();
 
     [Fact]
-    public async Task Insert_without_max_length_fails()
+    public async Task CreateCollection_without_max_length_fails()
     {
         // IsolatedMilvusFixture itself decides, from the MILVUS_IMAGE tag alone, whether this version
         // is new enough to bother starting a container for -- Text (and this crash) is 2.6+. A null
@@ -31,27 +33,18 @@ public class TextMaxLengthCrashRegressionTests : IClassFixture<IsolatedMilvusFix
             return;
         }
 
-        MilvusCollection collection = Client.GetCollection(nameof(Insert_without_max_length_fails));
+        MilvusCollection collection = Client.GetCollection(nameof(CreateCollection_without_max_length_fails));
         await collection.DropAsync(TestContext.Current.CancellationToken);
 
-        await Client.CreateCollectionAsync(
-            nameof(Insert_without_max_length_fails),
-            new[]
-            {
-                FieldSchema.Create<long>("id", isPrimaryKey: true),
-                FieldSchema.Create("content", MilvusDataType.Text),
-                FieldSchema.CreateFloatVector("vec", 4),
-            }, cancellationToken: TestContext.Current.CancellationToken);
-
-        MilvusException exception = await Assert.ThrowsAsync<MilvusException>(() =>
-            collection.InsertAsync(new FieldData[]
-            {
-                FieldData.Create("id", new long[] { 1 }),
-                FieldData.CreateText("content", new[] { "hello" }),
-                FieldData.CreateFloatVector("vec", new ReadOnlyMemory<float>[] { new float[] { 1, 1, 1, 1 } }),
-            }, cancellationToken: TestContext.Current.CancellationToken));
-        Assert.Contains("max length", exception.Message, StringComparison.OrdinalIgnoreCase);
-
-        await collection.DropAsync(TestContext.Current.CancellationToken);
+        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            Client.CreateCollectionAsync(
+                nameof(CreateCollection_without_max_length_fails),
+                new[]
+                {
+                    FieldSchema.Create<long>("id", isPrimaryKey: true),
+                    FieldSchema.Create("content", MilvusDataType.Text),
+                    FieldSchema.CreateFloatVector("vec", 4),
+                }, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Contains("MaxLength", exception.Message, StringComparison.Ordinal);
     }
 }

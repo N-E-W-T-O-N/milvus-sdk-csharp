@@ -75,9 +75,9 @@ public class TextTests : IAsyncLifetime
         await collection.DropAsync(TestContext.Current.CancellationToken);
     }
 
-    // "Insert without max_length fails" is deliberately not tested here: creating that exact collection
-    // shape (a Text field with no max_length) is what triggers the server panic documented above, so it
-    // runs against its own dedicated, disposable container instead of this shared one -- see
+    // "Create collection without max_length fails" is deliberately not tested here: creating that exact
+    // collection shape (a Text field with no max_length) is what triggers the server panic documented
+    // above, so it runs against its own dedicated, disposable container instead of this shared one -- see
     // TextMaxLengthCrashRegressionTests.
 
     [Fact]
@@ -88,12 +88,15 @@ public class TextTests : IAsyncLifetime
         MilvusCollection collection = Client.GetCollection(nameof(Rejects_as_primary_key));
         await collection.DropAsync(TestContext.Current.CancellationToken);
 
+        FieldSchema idField = FieldSchema.Create("id", MilvusDataType.Text, isPrimaryKey: true);
+        idField.MaxLength = 100;
+
         await Assert.ThrowsAsync<MilvusException>(() =>
             Client.CreateCollectionAsync(
                 nameof(Rejects_as_primary_key),
                 new[]
                 {
-                    FieldSchema.Create("id", MilvusDataType.Text, isPrimaryKey: true),
+                    idField,
                     FieldSchema.CreateFloatVector("vec", 4),
                 }, cancellationToken: TestContext.Current.CancellationToken));
     }

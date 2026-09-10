@@ -249,7 +249,11 @@ public sealed class FieldSchema
     /// Because that recovery pass can run well after the collection was created (even after it was
     /// dropped again, if the pass catches it mid-window), the crash can surface much later and appear
     /// to hit an unrelated, unlucky operation. <c>maxLength</c> is required here specifically to make
-    /// this unreachable through the public API -- there is no supported way to opt out of it.
+    /// this unreachable through the public API -- there is no supported way to opt out of it. The
+    /// general <see cref="Create(string, MilvusDataType, bool, bool, bool, string, bool, object?)" />
+    /// overload still accepts a <see cref="MilvusDataType.Text" /> field with no <see cref="MaxLength" />
+    /// set (it has no maxLength parameter to require one through), so <see cref="ToGrpc" /> itself rejects
+    /// that shape for any field, regardless of which factory built it.
     /// </param>
     /// <param name="description">An optional description for the field.</param>
     /// <param name="nullable">Whether the field can contain null values.</param>
@@ -547,6 +551,16 @@ public sealed class FieldSchema
     /// </summary>
     internal Grpc.FieldSchema ToGrpc()
     {
+        if (DataType == MilvusDataType.Text && MaxLength is null)
+        {
+            throw new ArgumentException(
+                $"Field '{Name}' is a {nameof(MilvusDataType.Text)} field with no {nameof(MaxLength)}. Milvus's own " +
+                "schema validation does not catch this at collection-creation time, but a live Milvus 2.6.4 container " +
+                "crashes its entire server process on a delayed WAL-recovery pass when it finds one -- see " +
+                $"{nameof(CreateText)}'s documentation for the full panic trace. Set {nameof(MaxLength)}, e.g. via " +
+                $"{nameof(CreateText)}, instead of the general {nameof(Create)} overload.");
+        }
+
         Grpc.FieldSchema grpcField = new()
         {
             Name = Name,
