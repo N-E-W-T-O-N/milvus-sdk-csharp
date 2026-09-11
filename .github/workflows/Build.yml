@@ -4,6 +4,7 @@ on:
   push:
     branches:
     - main
+    - test/cicd
   pull_request:
 
 jobs:
@@ -24,6 +25,8 @@ jobs:
 
       - name: Setup .NET SDKs
         uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.415'
 
       - name: Test
         run: dotnet test --logger "GitHubActions;report-warnings=false"
