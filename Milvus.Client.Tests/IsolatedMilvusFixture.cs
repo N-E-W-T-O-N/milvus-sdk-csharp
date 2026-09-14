@@ -36,6 +36,9 @@ public sealed class IsolatedMilvusFixture : IAsyncLifetime
         {
             _container = new MilvusBuilder(image)
                 .WithEnvironment("QUOTA_AND_LIMITS_FLUSH_RATE_COLLECTION_MAX", "-1")
+                // See MilvusFixture's identical setting for why: Milvus 3.0+ rejects a TEXT field
+                // without it, and it's a no-op on pre-3.0 images.
+                .WithEnvironment("COMMON_STORAGE_USE_LOON_FFI", "true")
                 .Build();
         }
     }

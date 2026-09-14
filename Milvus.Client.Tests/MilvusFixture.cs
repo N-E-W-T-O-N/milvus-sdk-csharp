@@ -12,6 +12,10 @@ public sealed class MilvusFixture : IAsyncLifetime
     private readonly MilvusContainer _container =
         new MilvusBuilder(Environment.GetEnvironmentVariable("MILVUS_IMAGE") ?? DefaultMilvusImage)
             .WithEnvironment("QUOTA_AND_LIMITS_FLUSH_RATE_COLLECTION_MAX", "-1")
+            // Milvus 3.0+ rejects a TEXT field with "TEXT field requires StorageV3; enable
+            // common.storage.useLoonFFI" unless this is turned on -- harmless on pre-3.0 images,
+            // which don't have this config key at all.
+            .WithEnvironment("COMMON_STORAGE_USE_LOON_FFI", "true")
             .Build();
 
     public string Host => _container.Hostname;
